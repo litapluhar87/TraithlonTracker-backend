@@ -247,6 +247,43 @@ app.delete("/api/activities/:id", async (req, res) => {
   }
 });
 
+// ─── Update (edit) a manual activity ──────────────────────────────────────────
+app.put("/api/activities/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      type, name, distance_m, duration_s,
+      elevation_m, start_date, notes, feel_rating,
+    } = req.body;
+
+    const updateFields = {};
+    if (type !== undefined)        updateFields.type = type;
+    if (name !== undefined)        updateFields.name = name;
+    if (distance_m !== undefined)  updateFields.distance_m = distance_m;
+    if (duration_s !== undefined)  updateFields.duration_s = duration_s;
+    if (elevation_m !== undefined) updateFields.elevation_m = elevation_m;
+    if (start_date !== undefined)  updateFields.start_date = start_date;
+    if (notes !== undefined || feel_rating !== undefined) {
+      updateFields.strava_data = { notes, feel_rating };
+    }
+
+    const { data, error } = await supabase
+      .from("activities")
+      .update(updateFields)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ activity: data });
+  } catch (err) {
+    console.error("Activity update error:", err);
+    res.status(500).json({ error: "Failed to update activity" });
+  }
+});
+
+
 // ─── Get all activities for a user_id (manual or Strava-linked) ──────────────
 app.get("/api/manual/activities/:userId", async (req, res) => {
   try {
