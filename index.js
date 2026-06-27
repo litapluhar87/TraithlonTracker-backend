@@ -4,9 +4,14 @@ import dotenv from "dotenv";
 import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
-dotenv.config({
-  path: "C:\\Rahul\\claude-projects\\FitnessApp\\Secrets\\triathlon-tracker.env"
-});
+import fs from 'fs';
+
+const localEnvPath = "C:\\Rahul\\claude-projects\\FitnessApp\\Secrets\\triathlon-tracker.env";
+if (fs.existsSync(localEnvPath)) {
+  dotenv.config({ path: localEnvPath });
+} else {
+  dotenv.config(); // Render: env vars already injected via dashboard, this is a harmless no-op
+}
 
 const app = express();
 app.use(cors({
