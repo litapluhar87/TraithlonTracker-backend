@@ -4,10 +4,17 @@ import dotenv from "dotenv";
 import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
-dotenv.config();
+dotenv.config({
+  path: "C:\\Rahul\\claude-projects\\FitnessApp\\Secrets\\triathlon-tracker.env"
+});
 
 const app = express();
-app.use(cors({ origin: "http://localhost:5173" })); // Vite dev server
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "https://litapluhar87.github.io",
+  ],
+}));
 app.use(express.json());
 
 // ─── Supabase client ───────────────────────────────────────────────────────────
@@ -154,7 +161,113 @@ app.get("/api/athlete/:stravaId", async (req, res) => {
   }
 });
 
-// ─── STEP 4: Strava Webhook ───────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// MANUAL ENTRY ROUTES (user_id based — no Strava required)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── Get or create athlete by user_id ─────────────────────────────────────────
+app.get("/api/manual/athlete/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    let { data: athlete, error } = await supabase
+      .from("athletes")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    // Auto-create on first login
+    if (!athlete) {
+      const { data: created, error: createErr } = await supabase
+        .from("athletes")
+        .insert({ user_id: userId })
+        .select()
+        .single();
+
+      if (createErr) throw createErr;
+      athlete = created;
+    }
+
+    res.json({ athlete });
+  } catch (err) {
+    console.error("Manual athlete fetch error:", err);
+    res.status(500).json({ error: "Failed to fetch athlete" });
+  }
+});
+
+// ─── Log a new manual activity ────────────────────────────────────────────────
+app.post("/api/activities", async (req, res) => {
+  try {
+    const {
+      user_id, type, name, distance_m, duration_s,
+      elevation_m, start_date, notes, feel_rating,
+    } = req.body;
+
+    if (!user_id || !type || !start_date) {
+      return res.status(400).json({ error: "user_id, type and start_date are required" });
+    }
+
+    const { data, error } = await supabase
+      .from("activities")
+      .insert({
+        user_id,
+        type,
+        name:        name || type,
+        distance_m:  distance_m || 0,
+        duration_s:  duration_s || 0,
+        elevation_m: elevation_m || null,
+        start_date,
+        data_source: "manual",
+        strava_data: notes || feel_rating ? { notes, feel_rating } : null,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ activity: data });
+  } catch (err) {
+    console.error("Activity insert error:", err);
+    res.status(500).json({ error: "Failed to save activity" });
+  }
+});
+
+// ─── Delete a manual activity ──────────────────────────────────────────────────
+app.delete("/api/activities/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabase.from("activities").delete().eq("id", id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Activity delete error:", err);
+    res.status(500).json({ error: "Failed to delete activity" });
+  }
+});
+
+// ─── Get all activities for a user_id (manual or Strava-linked) ──────────────
+app.get("/api/manual/activities/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const { data: activities, error } = await supabase
+      .from("activities")
+      .select("*")
+      .eq("user_id", userId)
+      .order("start_date", { ascending: false });
+
+    if (error) throw error;
+
+    res.json({ activities });
+  } catch (err) {
+    console.error("Manual activities fetch error:", err);
+    res.status(500).json({ error: "Failed to fetch activities" });
+  }
+});
+
+
 // Strava sends a GET to verify your webhook endpoint during setup
 app.get("/webhook/strava", (req, res) => {
   const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
