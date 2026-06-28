@@ -202,7 +202,30 @@ app.get("/api/manual/athlete/:userId", async (req, res) => {
   }
 });
 
-import { callClaude, buildSessionPrompt } from "./services/claude.js";
+// ─── Get cached cumulative AI summaries for a user ────────────────────────────
+app.get("/api/ai-summaries/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const { data: summaries, error } = await supabase
+      .from("ai_summaries")
+      .select("*")
+      .eq("user_id", userId);
+
+    if (error) throw error;
+
+    // Reshape into { swim: "...", bike: "...", run: "...", overall: "..." }
+    const result = {};
+    (summaries || []).forEach(s => { result[s.scope] = s.summary; });
+
+    res.json({ summaries: result });
+  } catch (err) {
+    console.error("AI summaries fetch error:", err);
+    res.status(500).json({ error: "Failed to fetch AI summaries" });
+  }
+});
+
+import { callClaude, buildSessionPrompt, buildCumulativePrompt, buildOverallPrompt } from "./services/claude.js";
 
 // ─── Log a new manual activity ────────────────────────────────────────────────
 app.post("/api/activities", async (req, res) => {
@@ -268,8 +291,13 @@ app.post("/api/activities", async (req, res) => {
       console.error("Claude summary generation failed (non-fatal):", aiErr);
       // Activity is already saved — AI summary is a nice-to-have, not a blocker
     }
-
-    res.json({ activity: { ...activity, ai_summary } });
+	
+	// Fire-and-forget: regenerate cumulative summaries in the background
+    regenerateCumulativeSummaries(user_id).catch(err =>
+      console.error("Background cumulative summary regen failed:", err)
+    );
+	
+	res.json({ activity: { ...activity, ai_summary } });
 
   } catch (err) {
     console.error("Activity insert error:", err);
@@ -512,6 +540,93 @@ function normaliseType(stravaType) {
   if (stravaType === "Ride" || stravaType === "VirtualRide") return "bike";
   if (stravaType === "Run")                       return "run";
   return "other";
+}
+
+// ─── Calculate cumulative stats for a discipline, generate + cache AI summary ──
+async function regenerateCumulativeSummaries(userId) {
+  const RACE_DISTANCES = { swim: 1500, bike: 40000, run: 10000 };
+  const RACE_TARGETS_S  = { swim: 3600, bike: 7500, run: 6000 };
+  const TARGET_LABELS   = { swim: "1:00:00", bike: "2:05:00", run: "1:40:00" };
+
+  const { data: allActivities, error } = await supabase
+    .from("activities")
+    .select("*")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  const disciplineSummaryLines = [];
+
+  for (const disc of ["swim", "bike", "run"]) {
+    const sessions = allActivities.filter(a => a.type === disc && a.distance_m && a.duration_s);
+    if (sessions.length === 0) continue;
+
+    const raceDist = RACE_DISTANCES[disc];
+    const targetS  = RACE_TARGETS_S[disc];
+
+    const paces = sessions.map(a => {
+      if (disc === "bike") {
+        return (a.distance_m / 1000) / (a.duration_s / 3600); // km/h
+      }
+      return (a.duration_s / a.distance_m) * (disc === "swim" ? 100 : 1000) / 60; // min per 100m or km
+    });
+
+    const onTrackCount = sessions.filter(a => {
+      const extrap = (a.duration_s / a.distance_m) * raceDist;
+      return extrap <= targetS;
+    }).length;
+
+    const avgPace = disc === "bike"
+      ? `${(paces.reduce((s, p) => s + p, 0) / paces.length).toFixed(1)} km/h`
+      : `${Math.floor(paces.reduce((s, p) => s + p, 0) / paces.length)}:${String(Math.round((paces.reduce((s, p) => s + p, 0) / paces.length % 1) * 60)).padStart(2, '0')} /${disc === 'swim' ? '100m' : 'km'}`;
+
+    const bestPaceVal = disc === "bike" ? Math.max(...paces) : Math.min(...paces);
+    const bestPace = disc === "bike"
+      ? `${bestPaceVal.toFixed(1)} km/h`
+      : `${Math.floor(bestPaceVal)}:${String(Math.round((bestPaceVal % 1) * 60)).padStart(2, '0')} /${disc === 'swim' ? '100m' : 'km'}`;
+
+    const onTrackPct = Math.round((onTrackCount / sessions.length) * 100);
+
+    const prompt = buildCumulativePrompt(disc, {
+      sessionCount: sessions.length,
+      avgPace,
+      bestPace,
+      onTrackPct,
+      targetLabel: TARGET_LABELS[disc],
+    });
+
+    try {
+      const summary = await callClaude(prompt);
+      await supabase.from("ai_summaries").upsert({
+        user_id: userId, scope: disc, summary, updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,scope" });
+
+      disciplineSummaryLines.push(`${disc}: ${sessions.length} sessions, ${onTrackPct}% on track`);
+    } catch (err) {
+      console.error(`Cumulative summary failed for ${disc}:`, err);
+    }
+  }
+
+  // Overall summary across all disciplines
+  if (disciplineSummaryLines.length > 0) {
+    const RACE_DATE = new Date('2026-10-04T07:00:00');
+    const daysToRace = Math.max(0, Math.ceil((RACE_DATE - new Date()) / (1000 * 60 * 60 * 24)));
+
+    const overallPrompt = buildOverallPrompt({
+      totalSessions: allActivities.length,
+      daysToRace,
+      disciplineSummaries: disciplineSummaryLines.join("\n"),
+    });
+
+    try {
+      const summary = await callClaude(overallPrompt);
+      await supabase.from("ai_summaries").upsert({
+        user_id: userId, scope: "overall", summary, updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,scope" });
+    } catch (err) {
+      console.error("Overall summary failed:", err);
+    }
+  }
 }
 
 // Refresh Strava access token if expired
