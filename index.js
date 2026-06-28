@@ -202,6 +202,8 @@ app.get("/api/manual/athlete/:userId", async (req, res) => {
   }
 });
 
+import { callGemini, buildSessionPrompt } from "./services/gemini.js";
+
 // ─── Log a new manual activity ────────────────────────────────────────────────
 app.post("/api/activities", async (req, res) => {
   try {
@@ -214,7 +216,8 @@ app.post("/api/activities", async (req, res) => {
       return res.status(400).json({ error: "user_id, type and start_date are required" });
     }
 
-    const { data, error } = await supabase
+    // Save the activity first
+    const { data: activity, error } = await supabase
       .from("activities")
       .insert({
         user_id,
@@ -232,13 +235,47 @@ app.post("/api/activities", async (req, res) => {
 
     if (error) throw error;
 
-    res.json({ activity: data });
+    // Generate AI summary (best-effort — don't fail the whole request if Gemini errors)
+    let ai_summary = null;
+    try {
+      // Calculate extrapolation for the prompt context
+      const RACE_DISTANCES = { swim: 1500, bike: 40000, run: 10000 };
+      const RACE_TARGETS_S = { swim: 3600, bike: 7500, run: 6000 }; // 1:00:00, 2:05:00, 1:40:00
+
+      const raceDist = RACE_DISTANCES[type];
+      const targetS  = RACE_TARGETS_S[type];
+      let extrapolated_s = null, onTrack = null;
+
+      if (raceDist && activity.distance_m && activity.duration_s) {
+        extrapolated_s = (activity.duration_s / activity.distance_m) * raceDist;
+        onTrack = extrapolated_s <= targetS;
+      }
+
+      if (extrapolated_s !== null) {
+        const prompt = buildSessionPrompt(
+          { type, distance_m: activity.distance_m, duration_s: activity.duration_s, extrapolated_s, onTrack },
+          {}
+        );
+        ai_summary = await callGemini(prompt);
+
+        // Save the summary back onto the activity row
+        await supabase
+          .from("activities")
+          .update({ ai_summary })
+          .eq("id", activity.id);
+      }
+    } catch (aiErr) {
+      console.error("Gemini summary generation failed (non-fatal):", aiErr);
+      // Activity is already saved — AI summary is a nice-to-have, not a blocker
+    }
+
+    res.json({ activity: { ...activity, ai_summary } });
+
   } catch (err) {
     console.error("Activity insert error:", err);
     res.status(500).json({ error: "Failed to save activity" });
   }
 });
-
 // ─── Delete a manual activity ──────────────────────────────────────────────────
 app.delete("/api/activities/:id", async (req, res) => {
   try {
