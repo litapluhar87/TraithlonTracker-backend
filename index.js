@@ -202,7 +202,7 @@ app.get("/api/manual/athlete/:userId", async (req, res) => {
   }
 });
 
-import { callGemini, buildSessionPrompt } from "./services/gemini.js";
+import { callClaude, buildSessionPrompt } from "./services/claude.js";
 
 // ─── Log a new manual activity ────────────────────────────────────────────────
 app.post("/api/activities", async (req, res) => {
@@ -256,7 +256,7 @@ app.post("/api/activities", async (req, res) => {
           { type, distance_m: activity.distance_m, duration_s: activity.duration_s, extrapolated_s, onTrack },
           {}
         );
-        ai_summary = await callGemini(prompt);
+        ai_summary = await callClaude(prompt);
 
         // Save the summary back onto the activity row
         await supabase
@@ -265,7 +265,7 @@ app.post("/api/activities", async (req, res) => {
           .eq("id", activity.id);
       }
     } catch (aiErr) {
-      console.error("Gemini summary generation failed (non-fatal):", aiErr);
+      console.error("Claude summary generation failed (non-fatal):", aiErr);
       // Activity is already saved — AI summary is a nice-to-have, not a blocker
     }
 
