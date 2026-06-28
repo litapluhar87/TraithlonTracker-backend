@@ -276,6 +276,71 @@ app.post("/api/activities", async (req, res) => {
     res.status(500).json({ error: "Failed to save activity" });
   }
 });
+
+// ─── Backfill AI summaries for existing activities ────────────────────────────
+app.post("/api/backfill-summaries/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const { data: activities, error } = await supabase
+      .from("activities")
+      .select("*")
+      .eq("user_id", userId)
+      .is("ai_summary", null);
+
+    if (error) throw error;
+
+    const RACE_DISTANCES = { swim: 1500, bike: 40000, run: 10000 };
+    const RACE_TARGETS_S = { swim: 3600, bike: 7500, run: 6000 };
+
+    const results = [];
+
+    for (const activity of activities) {
+      const raceDist = RACE_DISTANCES[activity.type];
+      const targetS  = RACE_TARGETS_S[activity.type];
+
+      if (!raceDist || !activity.distance_m || !activity.duration_s) {
+        results.push({ id: activity.id, status: "skipped (missing data)" });
+        continue;
+      }
+
+      try {
+        const extrapolated_s = (activity.duration_s / activity.distance_m) * raceDist;
+        const onTrack = extrapolated_s <= targetS;
+
+        const prompt = buildSessionPrompt({
+          type: activity.type,
+          distance_m: activity.distance_m,
+          duration_s: activity.duration_s,
+          extrapolated_s,
+          onTrack,
+        });
+
+        const ai_summary = await callClaude(prompt);
+
+        await supabase
+          .from("activities")
+          .update({ ai_summary })
+          .eq("id", activity.id);
+
+        results.push({ id: activity.id, status: "updated" });
+
+        await new Promise(r => setTimeout(r, 500));
+
+      } catch (err) {
+        console.error(`Backfill failed for activity ${activity.id}:`, err);
+        results.push({ id: activity.id, status: "failed", error: err.message });
+      }
+    }
+
+    res.json({ total: activities.length, results });
+
+  } catch (err) {
+    console.error("Backfill error:", err);
+    res.status(500).json({ error: "Backfill failed" });
+  }
+});
+
 // ─── Delete a manual activity ──────────────────────────────────────────────────
 app.delete("/api/activities/:id", async (req, res) => {
   try {
