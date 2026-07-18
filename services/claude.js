@@ -37,27 +37,29 @@ const TONE_INSTRUCTION =
 export function buildSessionPrompt(activity) {
   const { type, distance_m, duration_s, extrapolated_s, onTrack } = activity;
   return `
-A triathlete training for an Olympic-distance triathlon (4 Oct 2026) just logged
-a ${type} session: ${distance_m}m in ${Math.round(duration_s / 60)} minutes.
+A triathlete training for an Olympic-distance triathlon on 4 Oct 2026 
+(exactly ${daysToRace} days from today) just logged a ${type} session: 
+${distance_m}m in ${Math.round(duration_s / 60)} minutes.
 Extrapolated race-distance time: ${Math.round(extrapolated_s / 60)} minutes.
 Status vs target: ${onTrack ? "on track" : "behind target"}.
 
 Give a short interpretation of this session from a triathlon-training-goal
-perspective — what it means for race readiness, anything notable (good or
-needing work). ${TONE_INSTRUCTION}
+perspective. Do not estimate or calculate time remaining yourself — use the 
+${daysToRace} days figure provided. ${TONE_INSTRUCTION}
 `.trim();
 }
 
 export function buildCumulativePrompt(scope, stats) {
   const { sessionCount, avgPace, bestPace, onTrackPct, targetLabel } = stats;
   return `
-A triathlete training for an Olympic-distance triathlon (4 Oct 2026) has logged
-${sessionCount} ${scope} sessions so far. Average pace/speed: ${avgPace}.
-Best so far: ${bestPace}. ${onTrackPct}% of sessions were on or ahead of the
-race target (${targetLabel}).
+A triathlete training for an Olympic-distance triathlon on 4 Oct 2026
+(exactly ${daysToRace} days from today) has logged ${sessionCount} ${scope} 
+sessions so far. Average pace/speed: ${avgPace}. Best so far: ${bestPace}. 
+${onTrackPct}% of sessions were on or ahead of the race target (${targetLabel}).
 
 Give a short cumulative summary of their ${scope} progress toward race readiness.
-${TONE_INSTRUCTION}
+Do not estimate or calculate time remaining yourself — use the ${daysToRace} 
+days figure provided. ${TONE_INSTRUCTION}
 `.trim();
 }
 
@@ -71,6 +73,8 @@ Per-discipline status:
 ${disciplineSummaries}
 
 Give a short overall summary of where they stand across all three disciplines,
-and what deserves the most attention with the remaining time. ${TONE_INSTRUCTION}
+and what deserves the most attention with the remaining ${daysToRace} days.
+Do not estimate or calculate time remaining yourself — use the ${daysToRace} 
+days figure provided. ${TONE_INSTRUCTION}
 `.trim();
 }
