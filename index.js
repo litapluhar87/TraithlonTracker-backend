@@ -369,6 +369,17 @@ app.post("/api/backfill-summaries/:userId", async (req, res) => {
   }
 });
 
+// ─── Manually regenerate cumulative AI summaries for a user ───────────────────
+app.post("/api/regenerate-cumulative/:userId", async (req, res) => {
+  try {
+    await regenerateCumulativeSummaries(req.params.userId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Manual cumulative regen error:", err);
+    res.status(500).json({ error: "Failed to regenerate" });
+  }
+});
+
 // ─── Delete a manual activity ──────────────────────────────────────────────────
 app.delete("/api/activities/:id", async (req, res) => {
   try {
