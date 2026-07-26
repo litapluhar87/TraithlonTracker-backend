@@ -4,6 +4,9 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const CLAUDE_URL = "https://api.anthropic.com/v1/messages";
 const CLAUDE_MODEL = "claude-haiku-4-5-20251001"; // cheapest current model, plenty for short summaries
 
+const RACE_DATE = new Date('2026-10-04T07:00:00');
+const daysToRace = Math.max(0, Math.ceil((RACE_DATE - new Date()) / (1000 * 60 * 60 * 24)));
+
 export async function callClaude(prompt) {
   const res = await fetch(CLAUDE_URL, {
     method: "POST",
