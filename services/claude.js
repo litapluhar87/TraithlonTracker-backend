@@ -36,6 +36,12 @@ const TONE_INSTRUCTION =
   "frame feedback supportively, like a good coach who tells the truth without " +
   "being harsh. Keep it tight, 3-4 sentences max, no bullet points, no headers, " +
   "no preamble like 'Here is a summary' — just the summary text directly.";
+  
+const SESSION_TONE_INSTRUCTION =
+  "Tone: balanced and constructive — be honest about gaps from target, but " +
+  "frame feedback supportively, like a good coach who tells the truth without " +
+  "being harsh. STRICT LIMIT: maximum 3 sentences, no more. No bullet points, " +
+  "no headers, no preamble. Stop after 3 sentences even if there is more to say.";
 
 export function buildSessionPrompt(activity) {
   const { type, distance_m, duration_s, extrapolated_s, onTrack } = activity;
@@ -48,7 +54,7 @@ Status vs target: ${onTrack ? "on track" : "behind target"}.
 
 Give a short interpretation of this session from a triathlon-training-goal
 perspective. Do not estimate or calculate time remaining yourself — use the 
-${daysToRace} days figure provided. ${TONE_INSTRUCTION}
+${daysToRace} days figure provided. ${SESSION_TONE_INSTRUCTION}
 `.trim();
 }
 
