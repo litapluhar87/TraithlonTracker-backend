@@ -240,19 +240,27 @@ app.post("/api/activities", async (req, res) => {
     }
 
     // Save the activity first
-    const { data: activity, error } = await supabase
-      .from("activities")
-      .insert({
-        user_id,
-        type,
-        name:        name || type,
-        distance_m:  distance_m || 0,
-        duration_s:  duration_s || 0,
-        elevation_m: elevation_m || null,
-        start_date,
-        data_source: "manual",
-        strava_data: notes || feel_rating ? { notes, feel_rating } : null,
-      })
+	const { bike_type, run_type, swim_type } = req.body;
+
+	const { data: activity, error } = await supabase
+	  .from("activities")
+	  .insert({
+		user_id,
+		type,
+		name:        name || type,
+		distance_m:  distance_m || 0,
+		duration_s:  duration_s || 0,
+		elevation_m: elevation_m || null,
+		start_date,
+		data_source: "manual",
+		strava_data: {
+		  notes:     notes     || null,
+		  feel_rating: feel_rating || null,
+		  bike_type: bike_type || null,
+		  run_type:  run_type  || null,
+		  swim_type: swim_type || null,
+		},
+	  })
       .select()
       .single();
 
